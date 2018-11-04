@@ -24,45 +24,43 @@ import scala.Tuple2;
 
 @SuppressWarnings("unused")
 public class PageRank {
-
-	static ArrayList<Double> r;
+//	static ArrayList<Double> r;
 	static final double beta = 0.8;
 	static final int MAX_ITER = 40;
 
 	public static void pagerank(SparkSession ss) throws Exception {
 
 		JavaPairRDD<Integer, Integer> edges = initGraph(ss, "graph_tiny.txt");
-		JavaPairRDD<Integer, Iterable<Integer>> grouped = edges.distinct().groupByKey();
+		JavaPairRDD<Integer, Iterable<Integer>> grouped = edges.distinct().groupByKey().sortByKey();
 		JavaPairRDD<List<Integer>, Double> matrix_reduced = grouped.flatMapToPair(p -> getDegree(p)).reduceByKey((v1, v2)->v1+v2);
 		JavaPairRDD<List<Integer>, Double> matrix = matrix_reduced.mapToPair(x->new Tuple2<>(x._1, 1.0/x._2())).sortByKey(new ListComp());
-
-
-
-
-//		JavaPairRDD<List<Integer>, Double> matrix = matrix1.reduceByKey((v1, v2)->v1+v2).mapToPair(x->new Tuple2<>(x._1, 1.0/x._2));
 
 		grouped.saveAsTextFile("output/out1");
 		matrix_reduced.saveAsTextFile("output/out2");
 		matrix.saveAsTextFile("output/out3");
+
 		int n = (int) edges.groupByKey().count();
-		System.out.println(n);
 
-		r = new ArrayList<>(Collections.nCopies(n, Double.valueOf(1)/n));
+		ArrayList<Double> r = new ArrayList<>(Collections.nCopies(n, Double.valueOf(1)/n));
 
-		for (int i=0; i<MAX_ITER; i++) {
-			// TODO Compute the new vector r and replace the old r with the new one.
-		}
-
-
+//		for (int k=0; k<MAX_ITER; k++) {
+//			// TODO Compute the new vector r and replace the old r with the new one.
+//			for(int i = 1; i < n+1; i++) {
+//				JavaPairRDD<List<Integer>, Double> pair = matrix.flatMapToPair(x->calcRow(x, r));
+//			}
+//
+//		}
 //		int[] sortedOrder = sort(copy(r));
 	}
-
-	static class ListComp implements Comparator<List<Integer>>, Serializable {
-		public int compare(List<Integer> a, List<Integer> b) {
-			return (a.get(0) > b.get(0)) ? 1 : (a.get(0) < b.get(0)) ? -1 : 0;
-		}
+/* calcRow() */
+	static Double calcRow(Tuple2<List<Integer>, Double> p, ArrayList<Double> r) {
+		Double sum = 0.0;
+		List<Integer> l2 = p._1.subList(1, p._1.size()-1);
+		for(int i = 0; i < l2.size(); i++)
+			sum += l2.get(i);
+		return sum;
 	}
-
+/* getDegree() */
 	static Iterator<Tuple2<List<Integer>, Double>> getDegree(Tuple2<Integer, Iterable<Integer>> p) {
 		List<Tuple2<List<Integer>, Double>> list = new ArrayList<>();
 		List<Integer> list_ints = new ArrayList<>(Arrays.asList(p._1));
@@ -94,12 +92,8 @@ public class PageRank {
 		return order;
 	}
 
-
-
-
-
 /* Print Output */
-	static void printOut(int[] sortedOrder, int n) {
+	static void printOut(int[] sortedOrder, int n, ArrayList<Double> r) {
 		// Top 5 nodes with highest page rank
 		System.out.println(sortedOrder[n-1]+1+": "+r.get(sortedOrder[n-1]));
 		System.out.println(sortedOrder[n-2]+1+": "+r.get(sortedOrder[n-2]));
@@ -114,6 +108,12 @@ public class PageRank {
 		System.out.println(sortedOrder[4]+1+": "+r.get(sortedOrder[4]));
 	}
 
+/* COMPARE */
+	static class ListComp implements Comparator<List<Integer>>, Serializable {
+		public int compare(List<Integer> a, List<Integer> b) {
+			return (a.get(0) > b.get(0)) ? 1 : (a.get(0) < b.get(0)) ? -1 : 0;
+		}
+	}
 
 /* Initialize Graph */
 	static JavaPairRDD<Integer, Integer> initGraph(SparkSession ss, String filename) {
