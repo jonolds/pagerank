@@ -1,8 +1,10 @@
 import java.io.File;
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -30,26 +32,18 @@ public class PageRank {
 	public static void pagerank(SparkSession ss) throws Exception {
 
 		JavaPairRDD<Integer, Integer> edges = initGraph(ss, "graph_tiny.txt");
-		JavaPairRDD<Integer, Iterable<Integer>> grouped = edges.distinct().groupByKey().sortByKey();
-//		JavaPairRDD<List<Integer>, Double> matrix = grouped.flatMapToPair(p -> getDegree(p));
+		JavaPairRDD<Integer, Iterable<Integer>> grouped = edges.distinct().groupByKey();
+		JavaPairRDD<List<Integer>, Double> matrix_reduced = grouped.flatMapToPair(p -> getDegree(p)).reduceByKey((v1, v2)->v1+v2);
+		JavaPairRDD<List<Integer>, Double> matrix = matrix_reduced.mapToPair(x->new Tuple2<>(x._1, 1.0/x._2())).sortByKey(new ListComp());
 
-		JavaPairRDD<List<Integer>, Double> matrix = grouped.flatMapToPair(new PairFlatMapFunction<Tuple2<Integer, Iterable<Integer>>, List<Integer>, Double>() {
-			public Iterator<Tuple2<List<Integer>, Double>> call(Tuple2<Integer, Iterable<Integer>> t) throws Exception {
-				List<Tuple2<List<Integer>, Double>> list = new ArrayList<>();
-				List<Integer> l2 = new ArrayList<>();
-				t._2.forEach(x->l2.add(x));
-				list.add(new Tuple2<>(l2, 1.0));
 
-				return list.iterator();
-			}
-
-		});
 
 
 //		JavaPairRDD<List<Integer>, Double> matrix = matrix1.reduceByKey((v1, v2)->v1+v2).mapToPair(x->new Tuple2<>(x._1, 1.0/x._2));
 
 		grouped.saveAsTextFile("output/out1");
-		matrix.saveAsTextFile("output/out2");
+		matrix_reduced.saveAsTextFile("output/out2");
+		matrix.saveAsTextFile("output/out3");
 		int n = (int) edges.groupByKey().count();
 		System.out.println(n);
 
@@ -63,15 +57,17 @@ public class PageRank {
 //		int[] sortedOrder = sort(copy(r));
 	}
 
-	static Iterator<Tuple2<List<Integer>, Double>> getDegree(Tuple2<Integer, Iterable<Integer>> p) {
-		List<Integer> list_int = new ArrayList<>();
-		Iterator<Integer> it = p._2.iterator();
-		while(it.hasNext())
-			list_int.add(it.next());
+	static class ListComp implements Comparator<List<Integer>>, Serializable {
+		public int compare(List<Integer> a, List<Integer> b) {
+			return (a.get(0) > b.get(0)) ? 1 : (a.get(0) < b.get(0)) ? -1 : 0;
+		}
+	}
 
+	static Iterator<Tuple2<List<Integer>, Double>> getDegree(Tuple2<Integer, Iterable<Integer>> p) {
 		List<Tuple2<List<Integer>, Double>> list = new ArrayList<>();
-		for(Integer i : list_int)
-			list.add(new Tuple2<>(list_int, 1.0));
+		List<Integer> list_ints = new ArrayList<>(Arrays.asList(p._1));
+		p._2.forEach(x->list_ints.add(x));
+		p._2.forEach(x->list.add(new Tuple2<>(list_ints, 1.0)));
 		return list.iterator();
 	}
 
