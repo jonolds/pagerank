@@ -1,7 +1,6 @@
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Hashtable;
 import java.util.List;
@@ -16,11 +15,12 @@ import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.function.PairFunction;
 import org.apache.spark.sql.SparkSession;
 
+import pagerank.Print;
 import scala.Tuple2;
 
 //@SuppressWarnings("unused")
 public class PageRank {
-	static double[] r;
+	static List<Double> r;
 	static final double beta = 0.8;
 	static final int MAX_ITER = 40;
 
@@ -35,7 +35,6 @@ public class PageRank {
 
 		JavaPairRDD<Integer, Iterable<Integer>> indexed = indexed1.mapToPair(x->new Tuple2<>(Math.toIntExact(x._2), x._1._2));
 
-
 		class DegreeFunc implements PairFunction<Tuple2<Integer, Iterable<Integer>>, List<Integer>, Double> {
 			public Tuple2<List<Integer>, Double> call(Tuple2<Integer, Iterable<Integer>> t) throws Exception {
 				List<Integer> list_ints = new ArrayList<>();
@@ -47,19 +46,15 @@ public class PageRank {
 
 		JavaPairRDD<List<Integer>, Double> matrix = indexed.mapToPair(new DegreeFunc());
 
-
 		grouped.saveAsTextFile("output/out1");
 		matrix.saveAsTextFile("output/out2");
 
-
-		r = new double[n];
-		Arrays.fill(r, 1.0/n);
+		r = new ArrayList<>(Collections.nCopies(n, 1.0/n));
 
 		List<Tuple2<List<Integer>, Double>> mat = matrix.collect();
 
-
 		for (int k=0; k<2; k++) {
-			double[] new_r = new double[n];
+			List<Double> new_r = new ArrayList<>(Collections.nCopies(n, 0.0));
 
 			for(int z = 0; z < n; z++) {
 				List<Integer> ints = mat.get(z)._1;
@@ -67,15 +62,14 @@ public class PageRank {
 
 				for(int p = 0; p < ints.size(); p++) {
 					int i = ints.get(p);
-					new_r[i] += r[z]*val;
+					new_r.set(i, new_r.get(i) + r.get(z)*val);
 				}
-
 			}
-			for(int i = 0; i < r.length; i++)
-				r[i] = new_r[i];
-
+			for(int i = 0; i < r.size(); i++)
+				r.set(i, new_r.get(i));
 		}
 
+		Print.comma(r);
 //		int[] sortedOrder = sort(copy(r));
 	}
 
