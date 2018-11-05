@@ -3,8 +3,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Hashtable;
+import java.util.Iterator;
 import java.util.List;
-import java.util.stream.Collectors;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.log4j.Level;
@@ -12,21 +12,22 @@ import org.apache.log4j.Logger;
 import org.apache.spark.SparkContext;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
+import org.apache.spark.api.java.function.PairFlatMapFunction;
 import org.apache.spark.api.java.function.PairFunction;
 import org.apache.spark.sql.SparkSession;
 
 import pagerank.Print;
 import scala.Tuple2;
 
-//@SuppressWarnings("unused")
 public class PageRank {
-	static List<Double> r;
+	static List<Double> r, r2;
 	static final double beta = 0.8;
-	static final int MAX_ITER = 40;
+	static final int MAX_ITER = 20;
 	public static void pagerank(SparkSession ss) throws Exception {
 		JavaPairRDD<Tuple2<Integer, Iterable<Integer>>, Long> grouped = initGraph(ss, "graph_tiny.txt").distinct().groupByKey().sortByKey().zipWithIndex().cache();
 
 		final int n = (int) grouped.count();
+
 		final Hashtable<Integer, Integer> ht = getHashtable(grouped.mapToPair(x->new Tuple2<>(x._1._1, x._2)).collect());
 
 		JavaPairRDD<Integer, Iterable<Integer>> indexed = grouped.mapToPair(x->new Tuple2<>(Math.toIntExact(x._2), x._1._2));
@@ -42,32 +43,49 @@ public class PageRank {
 
 		JavaPairRDD<Integer, Tuple2<List<Integer>, Double>> matrix = indexed.mapToPair(new DegreeFunc());
 
-		grouped.saveAsTextFile("output/out1"); matrix.saveAsTextFile("output/out2");
-
 		r = new ArrayList<>(Collections.nCopies(n, 1.0/n));
+		r2 = new ArrayList<>(Collections.nCopies(n, 1.0/n));
 
-		final List<Double> r_copy = new ArrayList<>(r);
+		for (int k=0; k<MAX_ITER; k++) {
+				List<Double> next_r = new ArrayList<>(Collections.nCopies(n, 0.0));
 
+				class MatFunc implements PairFlatMapFunction<Tuple2<Integer, Tuple2<List<Integer>, Double>>, Integer, Double> {
+					public Iterator<Tuple2<Integer, Double>> call(Tuple2<Integer, Tuple2<List<Integer>, Double>> t) throws Exception {
+						List<Integer> ints = t._2._1;
 
-
-
-
-		List<Tuple2<Integer, Tuple2<List<Integer>, Double>>> mat = matrix.collect();
-		for (int k=0; k<3; k++) {
-			List<Double> new_r = new ArrayList<>(Collections.nCopies(n, 0.0));
-			for(int z = 0; z < n; z++) {
-				List<Integer> ints = mat.get(z)._2._1;
-				Double val = mat.get(z)._2._2;
-				for(int p = 0; p < ints.size(); p++) {
-					int i = ints.get(p);
-					new_r.set(i, new_r.get(i) + r.get(z)*val);
+						List<Tuple2<Integer, Double>> list = new ArrayList<>();
+						for(int i = 0; i < ints.size(); i++) {
+							Double d = r.get(t._1) * t._2._2;
+							list.add(new Tuple2<>(ints.get(i), d));
+						}
+						return list.iterator();
+					}
 				}
-			}
-			for(int i = 0; i < r.size(); i++)
-				r.set(i, new_r.get(i));
+				JavaPairRDD<Integer, Double> r_not_summed = matrix.flatMapToPair(new MatFunc()).reduceByKey((v1, v2)->v1+v2).sortByKey();
+
+				next_r = r_not_summed.map(x->x._2).collect();
+				r = next_r;
+				System.out.print(" r: " + k + ") ");
+				Print.comma(r);
+
+
+				List<Tuple2<Integer, Tuple2<List<Integer>, Double>>> mat = matrix.collect();
+				List<Double> copy_r2 = new ArrayList<>(Collections.nCopies(n, 0.0));
+				for(int z = 0; z < n; z++) {
+					List<Integer> ints = mat.get(z)._2._1;
+
+					for(int p = 0; p < ints.size(); p++) {
+						Double d = mat.get(z)._2._2 * r2.get(z);
+						int i = ints.get(p);
+						copy_r2.set(i, copy_r2.get(i) + d);
+					}
+				}
+				for(int i = 0; i < r2.size(); i++)
+					r2.set(i, copy_r2.get(i));
+				System.out.print("r2: " + k + ") ");
+				Print.comma(r2);
 		}
 
-		Print.comma(r);
 //		int[] sortedOrder = sort(copy(r));
 	}
 
@@ -114,6 +132,15 @@ public class PageRank {
 		return ht;
 	}
 
+/* DEEP COPY R */
+	static List<Double> copy(List<Double> orig) {
+		List<Double> copy = new ArrayList<>(orig.size());
+		for(int i = 0; i < orig.size(); i++)
+			copy.add((double)orig.get(i));
+		return copy;
+
+	}
+
 /* Initialize Graph */
 	static JavaPairRDD<Integer, Integer> initGraph(SparkSession ss, String filename) {
 		JavaRDD<String> graph = ss.read().textFile(filename).javaRDD();
@@ -125,16 +152,11 @@ public class PageRank {
 		return new Tuple2<>(Integer.parseInt(edge[0]), Integer.parseInt(edge[1]));
 	}
 
-/* Copy centroid (DEEP COPY) */
-	static <T>ArrayList<T> copy(ArrayList<T> cent) {
-		return (ArrayList<T>)cent.stream().collect(Collectors.toList());
-	}
-
 /* Main / Standard Setup */
 	public static void main(String[] args) throws Exception {
 		SparkSession ss = settings();
 		pagerank(ss);
-//		Thread.sleep(20000);
+		Thread.sleep(20000);
 		ss.close();
 	}
 
