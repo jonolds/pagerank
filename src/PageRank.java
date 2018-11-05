@@ -25,9 +25,9 @@ public class PageRank {
 	static final int MAX_ITER = 40;
 
 	public static void pagerank(SparkSession ss) throws Exception {
-		JavaPairRDD<Integer, Iterable<Integer>> grouped = initGraph(ss, "graph_tiny.txt").distinct().groupByKey().sortByKey().cache();
+		JavaPairRDD<Integer, Iterable<Integer>> grouped = initGraph(ss, "graph_tiny.txt").distinct().groupByKey().sortByKey().zipWithIndex().cache();
 
-		JavaPairRDD<Tuple2<Integer, Iterable<Integer>>, Long> indexed1 = grouped.zipWithIndex();
+//		JavaPairRDD<Tuple2<Integer, Iterable<Integer>>, Long> indexed1 = grouped.zipWithIndex();
 
 		final int n = (int) grouped.count();
 
@@ -46,14 +46,13 @@ public class PageRank {
 
 		JavaPairRDD<List<Integer>, Double> matrix = indexed.mapToPair(new DegreeFunc());
 
-		grouped.saveAsTextFile("output/out1");
-		matrix.saveAsTextFile("output/out2");
+		grouped.saveAsTextFile("output/out1"); matrix.saveAsTextFile("output/out2");
 
 		r = new ArrayList<>(Collections.nCopies(n, 1.0/n));
 
 		List<Tuple2<List<Integer>, Double>> mat = matrix.collect();
 
-		for (int k=0; k<2; k++) {
+		for (int k=0; k<3; k++) {
 			List<Double> new_r = new ArrayList<>(Collections.nCopies(n, 0.0));
 
 			for(int z = 0; z < n; z++) {
@@ -78,13 +77,11 @@ public class PageRank {
 		int[] order = new int[arr.size()];
 		for (int i=0; i<arr.size(); i++)
 			order[i] = i;
-
 		for (int i = 0; i < arr.size() - 1; i++) {
 			int index = i;
 			for (int j = i + 1; j < arr.size(); j++)
 				if (arr.get(j) < arr.get(index))
 					index = j;
-
 			double smallerNumber = arr.get(index);
 			arr.set(index, arr.get(i));
 			arr.set(i, smallerNumber);
@@ -114,11 +111,9 @@ public class PageRank {
 
 	static Hashtable<Integer, Integer> getHashtable(List<Tuple2<Integer, Long>> list) {
 		Hashtable<Integer, Integer> ht = new Hashtable<>(list.size());
-		for(int i = 0; i < list.size(); i++)
-			ht.put(list.get(i)._1, Math.toIntExact(list.get(i)._2));
+		list.stream().forEach(x->ht.put(x._1, Math.toIntExact(x._2)));
 		return ht;
 	}
-
 
 /* Initialize Graph */
 	static JavaPairRDD<Integer, Integer> initGraph(SparkSession ss, String filename) {
