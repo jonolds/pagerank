@@ -23,42 +23,41 @@ public class PageRank {
 	static List<Double> r;
 	static final double beta = 0.8;
 	static final int MAX_ITER = 40;
-
 	public static void pagerank(SparkSession ss) throws Exception {
-		JavaPairRDD<Integer, Iterable<Integer>> grouped = initGraph(ss, "graph_tiny.txt").distinct().groupByKey().sortByKey().zipWithIndex().cache();
-
-//		JavaPairRDD<Tuple2<Integer, Iterable<Integer>>, Long> indexed1 = grouped.zipWithIndex();
+		JavaPairRDD<Tuple2<Integer, Iterable<Integer>>, Long> grouped = initGraph(ss, "graph_tiny.txt").distinct().groupByKey().sortByKey().zipWithIndex().cache();
 
 		final int n = (int) grouped.count();
+		final Hashtable<Integer, Integer> ht = getHashtable(grouped.mapToPair(x->new Tuple2<>(x._1._1, x._2)).collect());
 
-		final Hashtable<Integer, Integer> ht = getHashtable(indexed1.mapToPair(x->new Tuple2<>(x._1._1, x._2)).collect());
+		JavaPairRDD<Integer, Iterable<Integer>> indexed = grouped.mapToPair(x->new Tuple2<>(Math.toIntExact(x._2), x._1._2));
 
-		JavaPairRDD<Integer, Iterable<Integer>> indexed = indexed1.mapToPair(x->new Tuple2<>(Math.toIntExact(x._2), x._1._2));
-
-		class DegreeFunc implements PairFunction<Tuple2<Integer, Iterable<Integer>>, List<Integer>, Double> {
-			public Tuple2<List<Integer>, Double> call(Tuple2<Integer, Iterable<Integer>> t) throws Exception {
+		class DegreeFunc implements PairFunction<Tuple2<Integer, Iterable<Integer>>, Integer, Tuple2<List<Integer>, Double>> {
+			public Tuple2<Integer, Tuple2<List<Integer>, Double>> call(Tuple2<Integer, Iterable<Integer>> t) throws Exception {
 				List<Integer> list_ints = new ArrayList<>();
 				t._2.forEach(x->list_ints.add(ht.get(x)));
 				Collections.sort(list_ints);
-				return new Tuple2<>(list_ints, 1.0/list_ints.size());
+				return new Tuple2<>(t._1, new Tuple2<>(list_ints, 1.0/list_ints.size()));
 			}
 		}
 
-		JavaPairRDD<List<Integer>, Double> matrix = indexed.mapToPair(new DegreeFunc());
+		JavaPairRDD<Integer, Tuple2<List<Integer>, Double>> matrix = indexed.mapToPair(new DegreeFunc());
 
 		grouped.saveAsTextFile("output/out1"); matrix.saveAsTextFile("output/out2");
 
 		r = new ArrayList<>(Collections.nCopies(n, 1.0/n));
 
-		List<Tuple2<List<Integer>, Double>> mat = matrix.collect();
+		final List<Double> r_copy = new ArrayList<>(r);
 
+
+
+
+
+		List<Tuple2<Integer, Tuple2<List<Integer>, Double>>> mat = matrix.collect();
 		for (int k=0; k<3; k++) {
 			List<Double> new_r = new ArrayList<>(Collections.nCopies(n, 0.0));
-
 			for(int z = 0; z < n; z++) {
-				List<Integer> ints = mat.get(z)._1;
-				Double val = mat.get(z)._2;
-
+				List<Integer> ints = mat.get(z)._2._1;
+				Double val = mat.get(z)._2._2;
 				for(int p = 0; p < ints.size(); p++) {
 					int i = ints.get(p);
 					new_r.set(i, new_r.get(i) + r.get(z)*val);
@@ -150,14 +149,3 @@ public class PageRank {
 		return spark;
 	}
 }
-
-
-
-///* getDegree() */
-//static Iterator<Tuple2<List<Integer>, Double>> getDegree(Tuple2<Integer, Iterable<Integer>> p) {
-//	List<Tuple2<List<Integer>, Double>> list = new ArrayList<>();
-//	List<Integer> list_ints = new ArrayList<>(Arrays.asList(p._1));
-//	p._2.forEach(x->list_ints.add(x));
-//	p._2.forEach(x->list.add(new Tuple2<>(list_ints, 1.0)));
-//	return list.iterator();
-//}
